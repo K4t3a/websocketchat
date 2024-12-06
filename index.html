@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSocket Chat</title>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+
+    #chat-container {
+      width: 100%;
+      max-width: 1200px;
+      background-color: #fff;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 90vh;
+    }
+
+    #chat {
+      flex: 1;
+      border-bottom: 1px solid #ccc;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    #input-container {
+      display: flex;
+      align-items: center;
+      padding: 20px;
+      border-bottom: 1px solid #ccc;
+    }
+
+    #input-container input,
+    #input-container textarea,
+    #input-container button {
+      margin-right: 10px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+
+    #input-container textarea {
+      flex: 1;
+      resize: none;
+      height: 50px;
+    }
+
+    #input-container button {
+      background-color: #007bff;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+    }
+
+    #input-container button:hover {
+      background-color: #0056b3;
+    }
+
+    #users {
+      list-style: none;
+      padding: 20px;
+      margin: 0;
+      border-top: 1px solid #ccc;
+      display: flex;
+      flex-wrap: wrap;
+    }
+
+    #users li {
+      padding: 10px;
+      cursor: pointer;
+      border-radius: 5px;
+      margin-right: 10px;
+      margin-bottom: 10px;
+      background-color: #e0e0e0;
+      display: flex;
+      align-items: center;
+      font-weight: normal;
+    }
+
+    #users li:hover {
+      background-color: #ccc;
+    }
+
+    #users li.selected {
+      background-color: #007bff;
+      color: #fff;
+      font-weight: bold;
+    }
+
+    .message {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 5px;
+      background-color: #f1f1f1;
+      display: flex;
+      align-items: center;
+    }
+
+    .system {
+      color: gray;
+      font-style: italic;
+      background-color: #fff;
+    }
+
+    .color-circle {
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      margin-right: 5px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="chat-container">
+    <h1>WebSocket Chat</h1>
+    <div id="chat"></div>
+    <div id="input-container">
+      <input type="text" id="name" placeholder="Ваше имя" />
+      <input type="color" id="color" value="#000000" />
+      <textarea id="message" placeholder="Введите сообщение"></textarea>
+      <button id="send">Отправить</button>
+    </div>
+    <ul id="users"></ul>
+  </div>
+
+  <script>
+    const socket = new WebSocket('ws://localhost:8080');
+    const chat = document.getElementById('chat');
+    const usersList = document.getElementById('users');
+    let name = '';
+    let color = '#000000';
+    let selectedUser = null; 
+
+    document.getElementById('color').addEventListener('input', (event) => {
+      color = event.target.value;
+    });
+
+
+    function appendMessage(text, color = '#000', isSystem = false) {
+      const message = document.createElement('div');
+      message.className = isSystem ? 'message system' : 'message';
+
+      const colorCircle = document.createElement('div');
+      colorCircle.className = 'color-circle';
+      colorCircle.style.backgroundColor = color;
+
+      const textNode = document.createElement('span');
+      textNode.textContent = text;
+
+      message.appendChild(colorCircle);
+      message.appendChild(textNode);
+
+      chat.appendChild(message);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function updateUsersList(users) {
+      usersList.innerHTML = '';
+      users.forEach(user => {
+        const li = document.createElement('li');
+        li.textContent = user.name;
+        li.classList.toggle('selected', selectedUser === user.name);
+
+        const colorCircle = document.createElement('div');
+        colorCircle.className = 'color-circle';
+        colorCircle.style.backgroundColor = user.color;
+
+        li.prepend(colorCircle);
+
+        li.onclick = () => {
+          if (selectedUser === user.name) {
+            selectedUser = null;
+          } else {
+            selectedUser = user.name;
+          }
+          updateUsersList(users);
+        };
+
+        usersList.appendChild(li);
+      });
+    }
+
+    socket.onmessage = (event) => {
+      const { type, text, color, users } = JSON.parse(event.data);
+
+      if (type === 'system') {
+        appendMessage(text, 'gray', true);
+      } else if (type === 'chat') {
+        appendMessage(text, color);
+      } else if (type === 'userlist') {
+        updateUsersList(users);
+      }
+    };
+
+    document.getElementById('send').onclick = () => {
+      const message = document.getElementById('message').value;
+
+      if (!name) {
+        name = document.getElementById('name').value;
+        color = document.getElementById('color').value;
+
+        socket.send(JSON.stringify({ type: 'auth', name, color }));
+        appendMessage('Вы вошли в чат!', color, true);
+      } else if (message) {
+        socket.send(JSON.stringify({
+          type: 'chat',
+          text: message,
+          to: selectedUser || null, 
+        }));
+        document.getElementById('message').value = '';
+      }
+    };
+
+    document.getElementById('message').onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('send').click();
+        e.preventDefault();
+      }
+    };
+  </script>
+</body>
+
+</html>
